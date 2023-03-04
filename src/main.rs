@@ -1,90 +1,14 @@
 use std::collections::HashMap;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-
-pub struct Pawn {
-    pub id: i32,
-    pub name: String,
-    pub atk: i32,
-    pub health: i32,
-    pub max_health: i32,
-    pub location: (i32, i32),
-}
-
-impl Pawn {
-    pub fn new(id: i32, name: String, atk: i32, health: i32) -> Pawn {
-        Pawn {
-            id,
-            name,
-            atk,
-            health,
-            max_health: health,
-            location: (-1, -1),
-        }
-    }
-
-    pub fn attack(&mut self, target: &mut Pawn) {
-        target.get_damage(self.atk);
-    }
-
-    pub fn get_damage(&mut self, damage: i32) {
-        self.health -= damage;
-    }
-
-    pub fn is_dead(&self) -> bool {
-        self.health <= 0
-    }
-}
+mod pawn;
+mod world;
+use pawn::*;
+use world::*;
 #[derive(Debug, Clone, PartialEq, Eq)]
 
 pub struct Game {
     pub pawns: HashMap<i32, Pawn>,
     pub turn: i32,
     pub map: Map,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Map {
-    pub width: i32,
-    pub height: i32,
-    pub tiles: Vec<Vec<Tile>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Tile {
-    pub x: i32,
-    pub y: i32,
-}
-
-impl Map {
-    pub fn new(width: i32, height: i32) -> Map {
-        let mut tiles = Vec::new();
-        for x in 0..width {
-            let mut row = Vec::new();
-            for y in 0..height {
-                row.push(Tile { x, y });
-            }
-            tiles.push(row);
-        }
-        Map {
-            width,
-            height,
-            tiles,
-        }
-    }
-
-    pub fn get_tile(&self, x: i32, y: i32) -> Option<&Tile> {
-        if x < 0 || x >= self.width || y < 0 || y >= self.height {
-            return None;
-        }
-        Some(&self.tiles[x as usize][y as usize])
-    }
-
-    pub fn get_tile_mut(&mut self, x: i32, y: i32) -> Option<&mut Tile> {
-        if x < 0 || x >= self.width || y < 0 || y >= self.height {
-            return None;
-        }
-        Some(&mut self.tiles[x as usize][y as usize])
-    }
 }
 
 impl Game {
@@ -96,9 +20,9 @@ impl Game {
         }
     }
 
-    pub fn add_pawn(&mut self, name: String, atk: i32, health: i32) -> i32 {
+    pub fn add_pawn(&mut self, name: String, atk: i32, health: i32, p_type: PawnType) -> i32 {
         let id = self.pawns.len() as i32;
-        let pawn = Pawn::new(id, name, atk, health);
+        let pawn = Pawn::new(id, name, atk, health, p_type);
         self.pawns.insert(id, pawn);
         id
     }
@@ -123,30 +47,9 @@ impl Game {
         }
         None
     }
-    pub fn attack(&mut self, attacker_id: i32, target_id: i32) {
-        if self.get_pawn(attacker_id).is_none() || self.get_pawn(target_id).is_none() {
-            return;
-        }
-
-        if self.turn != attacker_id {
-            println!("Not your turn!");
-            return;
-        }
-
-        let mut attacker = self.get_pawn(attacker_id).unwrap().clone();
-        let target = self.get_pawn_mut(target_id).unwrap();
-        attacker.attack(target);
-        self.turn += 1 % self.pawns.len() as i32;
-    }
 
     pub fn get_turn(&self) -> i32 {
         self.turn
-    }
-
-    pub fn move_pawn(&mut self, pawn_id: i32, x: i32, y: i32) {
-        let mut pawn = self.get_pawn_mut(pawn_id).unwrap().clone();
-        pawn.location = (pawn.location.0 + x, pawn.location.1 + y);
-        self.pawns.insert(pawn_id, pawn);
     }
 
     pub fn print_map(&self) {
@@ -172,11 +75,60 @@ impl Game {
 
 pub fn main() {
     let mut game = Game::new(10).clone();
-    let id1 = game.add_pawn("Eric".to_string(), 10, 100);
-    let id2 = game.add_pawn("Carina".to_string(), 10, 100);
+    let id1 = game.add_pawn("Eric".to_string(), 10, 100, PawnType::Player);
+    let id2 = game.add_pawn("Carina".to_string(), 10, 100, PawnType::AI);
 
     game.move_pawn(id1, 1, 1);
     game.move_pawn(id2, 5, 5);
-
     game.print_map();
+}
+
+pub trait Actions {
+    fn turn_check(&mut self, pawn_id: i32) -> bool;
+    fn distance(&self, pawn_id: i32, target_id: i32) -> i32;
+    fn attack(&mut self, attacker_id: i32, target_id: i32);
+    fn move_pawn(&mut self, pawn_id: i32, x: i32, y: i32);
+}
+
+impl Actions for Game {
+    fn turn_check(&mut self, pawn_id: i32) -> bool {
+        if self.turn != pawn_id {
+            println!("Not your turn!");
+            return false;
+        }
+        true
+    }
+
+    fn distance(&self, pawn_id: i32, target_id: i32) -> i32 {
+        let pawn = self.get_pawn(pawn_id).unwrap();
+        let target = self.get_pawn(target_id).unwrap();
+        let x_dist = (pawn.location.0 - target.location.0).abs();
+        let y_dist = (pawn.location.1 - target.location.1).abs();
+
+        x_dist + y_dist
+    }
+
+    fn attack(&mut self, attacker_id: i32, target_id: i32) {
+        if self.get_pawn(attacker_id).is_none() || self.get_pawn(target_id).is_none() {
+            return;
+        }
+
+        self.turn_check(attacker_id);
+        //TODO: Test
+        if self.distance(attacker_id, target_id) > 1 {
+            println!("Too far away!");
+            return;
+        }
+        let mut attacker = self.get_pawn(attacker_id).unwrap().clone();
+        let target = self.get_pawn_mut(target_id).unwrap();
+        attacker.attack(target);
+        self.turn += 1 % self.pawns.len() as i32;
+    }
+
+    fn move_pawn(&mut self, pawn_id: i32, x: i32, y: i32) {
+        self.turn_check(pawn_id);
+        let mut pawn = self.get_pawn_mut(pawn_id).unwrap().clone();
+        pawn.location = (pawn.location.0 + x, pawn.location.1 + y);
+        self.pawns.insert(pawn_id, pawn);
+    }
 }
